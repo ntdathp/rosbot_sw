@@ -102,8 +102,36 @@ class RobotControlNode(Node):
         t.child_frame_id = 'base_link'
         t.transform.translation.x = robot_state.x_pos
         t.transform.translation.y = robot_state.y_pos
-        t.transform.translation.z = 0.0325
+        t.transform.translation.z = 0.08
         t.transform.rotation = robot_orientation
+
+         # Transform for left wheel
+        left_wheel_transform = TransformStamped()
+        left_wheel_transform.header.stamp = timestamp
+        left_wheel_transform.header.frame_id = 'base_link'
+        left_wheel_transform.child_frame_id = 'left_wheel'
+        left_wheel_transform.transform.translation.x = 0.0
+        left_wheel_transform.transform.translation.y = 0.15
+        left_wheel_transform.transform.translation.z = 0.0
+        left_wheel_transform.transform.rotation.x = 0.0
+        left_wheel_transform.transform.rotation.y = 0.0
+        left_wheel_transform.transform.rotation.z = 0.0
+        left_wheel_transform.transform.rotation.w = 1.0
+        self.tf_broadcaster.sendTransform(left_wheel_transform)
+
+        # Transform for right wheel
+        right_wheel_transform = TransformStamped()
+        right_wheel_transform.header.stamp = timestamp
+        right_wheel_transform.header.frame_id = 'base_link'
+        right_wheel_transform.child_frame_id = 'right_wheel'
+        right_wheel_transform.transform.translation.x = 0.0
+        right_wheel_transform.transform.translation.y = -0.15
+        right_wheel_transform.transform.translation.z = 0.0
+        right_wheel_transform.transform.rotation.x = 0.0
+        right_wheel_transform.transform.rotation.y = 0.0
+        right_wheel_transform.transform.rotation.z = 0.0
+        right_wheel_transform.transform.rotation.w = 1.0
+        self.tf_broadcaster.sendTransform(right_wheel_transform)
         
         # odometry twist
         odom_msg = Odometry()
@@ -112,7 +140,7 @@ class RobotControlNode(Node):
         odom_msg.header.stamp = timestamp
         odom_msg.pose.pose.position.x = robot_state.x_pos
         odom_msg.pose.pose.position.y = robot_state.y_pos
-        odom_msg.pose.pose.position.z = 0.325
+        odom_msg.pose.pose.position.z = 0.08
         odom_msg.pose.pose.orientation = robot_orientation
         odom_msg.twist.twist.linear.x = robot_state.v
         odom_msg.twist.twist.angular.z = robot_state.w
@@ -123,27 +151,33 @@ class RobotControlNode(Node):
 
 
     def send_command(self, linear: float, angular: float) -> SerialStatus:
+        
         command = f'{linear:.3f},{angular:.3f}\n'.encode('UTF-8')
         self.get_logger().debug(f'Sending command: "{command}"')
         self.ser.write(command)
-        while self.ser.in_waiting == 0:    
-            pass
-
-        res = self.ser.readline().decode('UTF-8')
-
-        values = res.split(',')
+    
+        timeout = 0.1  # 100 ms timeout
+        start_time = time.time()
+    
+        while self.ser.in_waiting == 0:
+            if time.time() - start_time > timeout:
+                self.get_logger().info("No response, resending command")
+                self.ser.write(command)
+                start_time = time.time()
         
         try:
+            res = self.ser.readline().decode('UTF-8')
+            values = res.split(',')
             values = list(map(float, values))
-        except ValueError as e:
-            self.get_logger().info(f'Bad data: "{res}"')
+        except (UnicodeDecodeError, ValueError) as e:
+            self.get_logger().info(f'Bad data: "{res}" - {e}')
             return None
 
         return SerialStatus(*values)
     
     def twist_callback(self, twist: Twist):
         self.twist = twist
-        self.get_logger().info(f'Received cmd_vel: linear=({twist.linear.x}, {twist.linear.y}, {twist.linear.z}), angular=({twist.angular.x}, {twist.angular.y}, {twist.angular.z})')
+        self.get_logger().info(f'Received cmd_vel: linear=({twist.linear.x}), angular=({twist.angular.z})')
 
         
 

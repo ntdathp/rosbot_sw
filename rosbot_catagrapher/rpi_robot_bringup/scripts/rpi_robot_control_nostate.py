@@ -38,10 +38,10 @@ class SerialStatus:
     """Class for different data given by the embedded system"""
     left_ref_speed: float
     right_ref_speed: float
-    left_speed:float
+    left_speed: float
     right_speed: float
     left_effort: float
-    right_effor: float
+    right_effort: float
     x_pos: float
     y_pos: float
     theta: float
@@ -54,7 +54,7 @@ class RobotControlNode(Node):
     def __init__(self):
         super().__init__('rpi_robot_node')
         
-        self.declare_parameter('pico_port', '/dev/ttyACM0')
+        self.declare_parameter('pico_port', '/dev/ttyUSB0')
 
         self.twist_subscription = self.create_subscription(
             Twist,
@@ -70,12 +70,19 @@ class RobotControlNode(Node):
             10
         )
         time.sleep(0.2)
-        self.port = self.get_parameter('pico_port').get_parameter_value().string_value
-        self.ser = serial.Serial(self.port)
-        self.get_logger().info(f'Using serial port {self.ser.name}')
+        port = self.get_parameter('pico_port').get_parameter_value().string_value
+        self.ser = serial.Serial(
+            port=port,
+            baudrate=115200,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS,
+            timeout=1
+        )
+        self.get_logger().info(f'UART initialized on port {port}')
         self.twist = Twist()
         # set timer
-        self.pub_period = 0.04  # 0.02 seconds = 50 hz = pid rate for robot
+        self.pub_period = 0.04  # 0.04 seconds = 25 hz = pid rate for robot
         self.pub_timer = self.create_timer(self.pub_period, self.timer_callback)
     
     def timer_callback(self):
@@ -83,38 +90,34 @@ class RobotControlNode(Node):
         if robot_state is None:
             return
 
-
     def send_command(self, linear: float, angular: float) -> SerialStatus:
-        self.get_logger().debug(f'Data to send: {linear}, {angular}')
-        command = f'{linear:.3f},{angular:.3f}/'.encode('UTF-8')
+        
+        command = f'{linear:.3f},{angular:.3f}\n'.encode('UTF-8')
         self.get_logger().debug(f'Sending command: "{command}"')
         self.ser.write(command)
+    
+        timeout = 0.1  # 100 ms timeout
+        start_time = time.time()
+    
         while self.ser.in_waiting == 0:
-            pass
-
-        res = self.ser.read(self.ser.in_waiting).decode('UTF-8')
-        self.get_logger().debug(f'data: "{res}", bytes: {len(res)}')
-
-        if res == '0' or len(res) < 79 or len(res) > (79 + 13):
-            self.get_logger().warn(f'Bad data: "{res}"')
-            return None
-
-        raw_list = res.strip().split('/')[1].split(',')
+            if time.time() - start_time > timeout:
+                self.get_logger().info("No response, resending command")
+                self.ser.write(command)
+                start_time = time.time()
         
         try:
-            values_list = [float(value) for value in raw_list]
-        except ValueError as e:
-            self.get_logger().warn(f'Bad data: "{res}"')
+            res = self.ser.readline().decode('UTF-8')
+            values = res.split(',')
+            values = list(map(float, values))
+        except (UnicodeDecodeError, ValueError) as e:
+            self.get_logger().info(f'Bad data: "{res}" - {e}')
             return None
 
-        return SerialStatus(*values_list)
-    
+        return SerialStatus(*values)
+
     def twist_callback(self, twist: Twist):
         self.twist = twist
-        self.get_logger().info(f'Twist received: {twist}')
-
-
-        
+        self.get_logger().info(f'Received cmd_vel: linear=({twist.linear.x}), angular=({twist.angular.z})')
 
 def main(args=None):
     rclpy.init(args=args)
