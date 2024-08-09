@@ -4,7 +4,7 @@
   <name>rpi_robot_slam</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="eduardo.laruta@gmail.com">pepe</maintainer>
+  <maintainer email="nt1dathp@gmail.com">pepe</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
